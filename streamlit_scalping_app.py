@@ -8,10 +8,16 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import time
+
+# Import yfinance with error handling
+try:
+    import yfinance as yf
+except ImportError:
+    st.error("yfinance module not found. Please ensure requirements.txt includes yfinance==0.2.28")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
