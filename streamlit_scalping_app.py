@@ -310,6 +310,7 @@ def create_chart(data, box_high, box_low, signal, is_live_data, symbol):
     
     # Add signal marker if present
     if signal:
+        # Mark signal candle
         fig.add_trace(go.Scatter(
             x=[signal['candle_time']],
             y=[signal['entry']],
@@ -318,6 +319,58 @@ def create_chart(data, box_high, box_low, signal, is_live_data, symbol):
                        line=dict(color='black', width=2)),
             name=f"{signal['direction']} Signal"
         ))
+        
+        # Add entry line
+        fig.add_hline(y=signal['entry'], 
+                     line_dash="solid", 
+                     line_color="blue", 
+                     line_width=3,
+                     annotation_text=f"📍 ENTRY: ${signal['entry']:.2f}",
+                     annotation_position="right")
+        
+        # Add stop loss line
+        fig.add_hline(y=signal['stop_loss'], 
+                     line_dash="dot", 
+                     line_color="red", 
+                     line_width=2,
+                     annotation_text=f"🛑 STOP LOSS: ${signal['stop_loss']:.2f}",
+                     annotation_position="right")
+        
+        # Add take profit line
+        fig.add_hline(y=signal['take_profit'], 
+                     line_dash="dot", 
+                     line_color="green", 
+                     line_width=2,
+                     annotation_text=f"🎯 TAKE PROFIT: ${signal['take_profit']:.2f}",
+                     annotation_position="right")
+        
+        # Add shaded profit zone
+        if signal['direction'] == 'LONG':
+            # Shade area between entry and TP (green)
+            fig.add_hrect(y0=signal['entry'], y1=signal['take_profit'], 
+                         fillcolor="green", opacity=0.1,
+                         layer="below", line_width=0,
+                         annotation_text="PROFIT ZONE", 
+                         annotation_position="top left")
+            # Shade area between entry and SL (red)
+            fig.add_hrect(y0=signal['stop_loss'], y1=signal['entry'], 
+                         fillcolor="red", opacity=0.1,
+                         layer="below", line_width=0,
+                         annotation_text="LOSS ZONE", 
+                         annotation_position="bottom left")
+        else:  # SHORT
+            # Shade area between entry and TP (green)
+            fig.add_hrect(y0=signal['take_profit'], y1=signal['entry'], 
+                         fillcolor="green", opacity=0.1,
+                         layer="below", line_width=0,
+                         annotation_text="PROFIT ZONE", 
+                         annotation_position="bottom left")
+            # Shade area between entry and SL (red)
+            fig.add_hrect(y0=signal['entry'], y1=signal['stop_loss'], 
+                         fillcolor="red", opacity=0.1,
+                         layer="below", line_width=0,
+                         annotation_text="LOSS ZONE", 
+                         annotation_position="top left")
     
     # Update layout
     title_text = f"{symbol} - 5 Minute Chart"
@@ -387,6 +440,35 @@ with st.sidebar:
     
     st.markdown("---")
     
+    st.subheader("⏰ Trade Timing")
+    st.markdown("""
+    **When to Enter:**
+    - ✅ After reversal pattern forms
+    - ✅ Price broke box first
+    - ✅ Candle closed as pattern
+    - ✅ Place stop order immediately
+    
+    **When to Take Profit:**
+    - 🎯 Price hits opposite box boundary
+    - 🎯 Use limit order at TP level
+    - 🎯 Or trail stop as it approaches
+    - 🎯 Don't be greedy - take it!
+    
+    **When to Cut Loss:**
+    - 🛑 Price hits stop loss level
+    - 🛑 Exit IMMEDIATELY, no questions
+    - 🛑 Don't move SL further away
+    - 🛑 Accept the loss and move on
+    
+    **When to Exit Early:**
+    - ⚠️ End of trading day
+    - ⚠️ Major news announced
+    - ⚠️ Pattern invalidated
+    - ⚠️ Volume disappears
+    """)
+    
+    st.markdown("---")
+    
     with st.expander("ℹ️ How to Use"):
         st.markdown("""
         **Mobile Tips:**
@@ -403,6 +485,11 @@ with st.sidebar:
         **Market Hours:**
         - 9:30 AM - 4:00 PM ET
         - Monday - Friday
+        
+        **Best Times to Trade:**
+        - 9:45-11:00 AM (morning volatility)
+        - 2:00-3:30 PM (afternoon push)
+        - Avoid lunch (11:30-1:30 PM)
         """)
 
 # Main content area
@@ -447,18 +534,230 @@ if st.session_state.last_update or st.button("▶️ Start Analysis", use_contai
         # Signal Status
         if result['signal']:
             signal = result['signal']
+            
+            # Calculate trade metrics
+            risk = abs(signal['entry'] - signal['stop_loss'])
+            reward = abs(signal['take_profit'] - signal['entry'])
+            risk_reward_ratio = reward / max(risk, 0.01)
+            
+            # Calculate potential P&L for 100 shares
+            shares = 100
+            potential_profit = reward * shares
+            potential_loss = risk * shares
+            
             st.markdown(f"""
             <div class="info-box">
                 <h3>⭐ {signal['direction']} SIGNAL DETECTED</h3>
                 <p><strong>Pattern:</strong> {signal['type']}</p>
-                <p><strong>Entry Price:</strong> ${signal['entry']:.2f}</p>
-                <p><strong>Stop Loss:</strong> ${signal['stop_loss']:.2f}</p>
-                <p><strong>Take Profit:</strong> ${signal['take_profit']:.2f}</p>
-                <p><strong>Risk/Reward:</strong> {abs(signal['take_profit'] - signal['entry']) / max(abs(signal['entry'] - signal['stop_loss']), 0.01):.2f}:1</p>
             </div>
             """, unsafe_allow_html=True)
+            
+            # Trade Setup Details
+            st.subheader("📋 Trade Setup Instructions")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### 🎯 Entry")
+                if signal['direction'] == 'LONG':
+                    st.success(f"""
+                    **BUY Order:** Stop Limit Buy  
+                    **Entry Price:** ${signal['entry']:.2f}  
+                    **Order Type:** Stop Market or Stop Limit  
+                    
+                    ⏰ **When to Enter:**  
+                    - Place order NOW if pattern just formed
+                    - Enter when price reaches ${signal['entry']:.2f}
+                    - Only if candle closes as reversal pattern
+                    """)
+                else:  # SHORT
+                    st.error(f"""
+                    **SELL SHORT Order:** Stop Limit Sell  
+                    **Entry Price:** ${signal['entry']:.2f}  
+                    **Order Type:** Stop Market or Stop Limit  
+                    
+                    ⏰ **When to Enter:**  
+                    - Place order NOW if pattern just formed
+                    - Enter when price reaches ${signal['entry']:.2f}
+                    - Only if candle closes as reversal pattern
+                    """)
+                
+                st.metric("Entry Level", f"${signal['entry']:.2f}")
+            
+            with col2:
+                st.markdown("### 🛡️ Risk Management")
+                st.warning(f"""
+                **Stop Loss:** ${signal['stop_loss']:.2f}  
+                **Take Profit:** ${signal['take_profit']:.2f}  
+                **Risk per Share:** ${risk:.2f}  
+                **Reward per Share:** ${reward:.2f}  
+                **Risk/Reward Ratio:** {risk_reward_ratio:.2f}:1
+                """)
+            
+            # Exit Instructions
+            st.markdown("---")
+            st.subheader("🚪 Exit Strategy")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("### ✅ Take Profit (WIN)")
+                st.success(f"""
+                **Exit Price:** ${signal['take_profit']:.2f}  
+                **Target:** Box boundary  
+                
+                **When to Exit:**  
+                ✓ Price reaches ${signal['take_profit']:.2f}  
+                ✓ Use limit order at this price  
+                ✓ Or exit manually when hit  
+                
+                **Expected Profit (100 shares):**  
+                ${potential_profit:.2f}
+                """)
+            
+            with col2:
+                st.markdown("### ❌ Stop Loss (LOSS)")
+                st.error(f"""
+                **Exit Price:** ${signal['stop_loss']:.2f}  
+                **Protection:** Signal candle extreme  
+                
+                **When to Exit:**  
+                ✓ Price reaches ${signal['stop_loss']:.2f}  
+                ✓ Use stop market order  
+                ✓ Exit IMMEDIATELY if hit  
+                ✓ Don't wait or hope  
+                
+                **Maximum Loss (100 shares):**  
+                ${potential_loss:.2f}
+                """)
+            
+            with col3:
+                st.markdown("### ⚖️ Alternative Exits")
+                st.info(f"""
+                **Partial Profit:**  
+                • Exit 50% at midpoint  
+                • Move SL to breakeven  
+                • Let rest run to target  
+                
+                **Time-based:**  
+                • Exit at end of day  
+                • Don't hold overnight  
+                • Scalping = quick in/out  
+                
+                **Discretionary:**  
+                • Strong counter-signal  
+                • Volume dries up  
+                • News event occurs
+                """)
+            
+            # Position Sizing Calculator
+            st.markdown("---")
+            st.subheader("📊 Position Size Calculator")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                account_size = st.number_input("Account Size ($)", 
+                                              min_value=1000, 
+                                              max_value=1000000, 
+                                              value=10000, 
+                                              step=1000)
+            
+            with col2:
+                risk_percent = st.slider("Risk per Trade (%)", 
+                                        min_value=0.5, 
+                                        max_value=5.0, 
+                                        value=1.0, 
+                                        step=0.5)
+            
+            with col3:
+                st.metric("Risk Amount", f"${account_size * risk_percent / 100:.2f}")
+            
+            # Calculate position size
+            risk_amount = account_size * risk_percent / 100
+            if risk > 0:
+                max_shares = int(risk_amount / risk)
+                position_value = max_shares * signal['entry']
+                
+                st.success(f"""
+                ### 📐 Recommended Position Size
+                
+                **Maximum Shares:** {max_shares} shares  
+                **Position Value:** ${position_value:.2f}  
+                **Risk per Share:** ${risk:.2f}  
+                **Total Risk:** ${max_shares * risk:.2f} ({risk_percent}% of account)  
+                **Potential Profit:** ${max_shares * reward:.2f}  
+                
+                ⚠️ **Important:** This assumes entry = stop loss (as per strategy). Actual risk may vary based on slippage.
+                """)
+            
+            # Trading Checklist
+            st.markdown("---")
+            st.subheader("✅ Pre-Trade Checklist")
+            
+            checklist_col1, checklist_col2 = st.columns(2)
+            
+            with checklist_col1:
+                st.markdown("""
+                **Before Entering:**
+                - [ ] Volatility filter passed (box < 25% ATR)
+                - [ ] Clear reversal pattern formed
+                - [ ] Price broke box boundary first
+                - [ ] Volume confirms the move
+                - [ ] No major news pending
+                - [ ] Risk/reward ratio > 1.5:1
+                - [ ] Position size calculated
+                - [ ] Stop loss order ready
+                """)
+            
+            with checklist_col2:
+                st.markdown(f"""
+                **Order Entry Details:**
+                - [ ] Symbol: {symbol.upper()}
+                - [ ] Direction: {signal['direction']}
+                - [ ] Entry: ${signal['entry']:.2f}
+                - [ ] Stop Loss: ${signal['stop_loss']:.2f}
+                - [ ] Take Profit: ${signal['take_profit']:.2f}
+                - [ ] Shares: ___ (calculate above)
+                - [ ] Order type set correctly
+                - [ ] Review one final time!
+                """)
+            
+            # Warning
+            st.markdown("""
+            <div class="warning-box">
+                <strong>⚠️ CRITICAL REMINDERS:</strong>
+                <ul>
+                    <li>This is a SCALPING strategy - quick in and out</li>
+                    <li>Set your stop loss IMMEDIATELY after entry</li>
+                    <li>Don't move your stop loss further away</li>
+                    <li>Take your profit when target is hit - don't be greedy</li>
+                    <li>If stopped out, accept it and move on</li>
+                    <li>Review the setup after each trade</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+            
         else:
             st.info("⏳ No signal detected. Waiting for valid setup...")
+            
+            # Show what we're waiting for
+            st.markdown("### 🔍 What We're Looking For:")
+            st.markdown(f"""
+            **Setup Requirements:**
+            1. ✓ Box defined from first 15 minutes
+            2. ✓ Box range < 25% of ATR: {'✅ PASS' if result['is_valid_volatility'] else '❌ FAIL - Too Wide'}
+            3. ⏳ Price breaks above box high (for SHORT) or below box low (for LONG)
+            4. ⏳ Reversal candle pattern forms (Hammer or Engulfing)
+            
+            **Current Status:**
+            - Box High: ${result['box_high']:.2f}
+            - Box Low: ${result['box_low']:.2f}
+            - Current Price: ${result['current_price']:.2f}
+            - Price is {'INSIDE' if result['current_price'] >= result['box_low'] and result['current_price'] <= result['box_high'] else 'OUTSIDE'} the box
+            
+            Keep monitoring for breakout and reversal pattern!
+            """)
         
         # Chart
         st.subheader("📊 5-Minute Chart")
